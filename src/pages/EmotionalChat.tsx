@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Layout, Input, Button, List, Avatar, Card, Skeleton } from 'antd';
+import { Layout, Input, Button, List, Avatar, Card, Skeleton, Select } from 'antd';
 import { SendOutlined, UserOutlined, RobotOutlined, AudioOutlined } from '@ant-design/icons';
 
 const { Content } = Layout;
@@ -21,10 +21,52 @@ const EmotionalChat: React.FC = () => {
   });
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [selectedEmotion, setSelectedEmotion] = useState('neutral');
+  const [selectedDialect, setSelectedDialect] = useState('');
+  const [selectedVoice, setSelectedVoice] = useState('');
+  const [voiceOptions, setVoiceOptions] = useState<Array<{ value: string; label: string }>>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  const emotionOptions = [
+    { value: 'neutral', label: '中性' },
+    { value: 'happy', label: '快乐' },
+    { value: 'sad', label: '悲伤' },
+    { value: 'surprise', label: '惊喜' },
+    { value: 'angry', label: '愤怒' }
+  ];
+
+  const dialectOptions = [
+    { value: '', label: '普通话' },
+    { value: '四川话', label: '四川话' },
+    { value: '上海话', label: '上海话' },
+    { value: '天津话', label: '天津话' }
+  ];
   const API_KEY = 'sk-bmpnjwoudgongymjxddhuwzgllfrszdbfsgygjkhhgfwizvz';
+
+  // 获取可用音色列表
+  useEffect(() => {
+    const fetchVoices = async () => {
+      try {
+        const response = await fetch('https://api.siliconflow.cn/v1/audio/voice/list', {
+          headers: {
+            'Authorization': `Bearer ${API_KEY}`,
+          }
+        });
+        const data = await response.json();
+        if (data.result) {
+          const options = data.result.map((voice: { model: string; customName: string; text: string; uri: string }) => ({
+            value: voice.uri,
+            label: voice.customName
+          }));
+          setVoiceOptions(options);
+        }
+      } catch (error) {
+        console.error('Error fetching voices:', error);
+      }
+    };
+    fetchVoices();
+  }, []);
 
   const handleSend = async () => {
     if (!inputValue.trim()) return;
@@ -113,6 +155,8 @@ const EmotionalChat: React.FC = () => {
       isLoading: true
     };
     setMessages(prev => [...prev, loadingMessage]);
+    const speechPrompt = `请以${selectedEmotion === 'neutral' ? '平静的语气' :
+      emotionOptions.find(e => e.value === selectedEmotion)?.label + '的语气'}表达<|endprompt|>`
     try {
       // 生成对话响应
       const chatResponse = await fetch('http://127.0.0.1:11434/v1/chat/completions', {
@@ -124,7 +168,7 @@ const EmotionalChat: React.FC = () => {
           model: "deepseek-r1:8b",
           messages: [{
             role: "user",
-            content: input
+            content: `${input}`
           }]
         })
       });
@@ -141,14 +185,14 @@ const EmotionalChat: React.FC = () => {
       // 使用正则表达式提取所有的思维过程
       const thinkRegex = /<think>(.*?)<\/think>/gs;
       const thinkMatches = [...botReply.matchAll(thinkRegex)];
-      
+
       if (thinkMatches.length > 0) {
         // 合并所有思维过程
         currentThinkingProcess = thinkMatches
           .map(match => match[1].trim())
           .filter(process => process)
           .join('\n');
-        
+
         // 移除所有 <think> 标签及其内容
         displayReply = botReply.replace(/<think>.*?<\/think>/gs, '').trim();
       }
@@ -162,11 +206,11 @@ const EmotionalChat: React.FC = () => {
         },
         body: JSON.stringify({
           model: "FunAudioLLM/CosyVoice2-0.5B",
-          voice: "FunAudioLLM/CosyVoice2-0.5B:anna",
+          voice: selectedVoice || "FunAudioLLM/CosyVoice2-0.5B:anna",
           response_format: "mp3",
           gain: 0,
           stream: false,
-          input: displayReply
+          input: `${speechPrompt}${displayReply}`
         })
       });
 
@@ -182,7 +226,7 @@ const EmotionalChat: React.FC = () => {
         thinkingProcess: currentThinkingProcess
       };
 
-      setMessages(prev => prev.map(msg => 
+      setMessages(prev => prev.map(msg =>
         msg.isLoading ? botMessage : msg
       ));
 
@@ -295,6 +339,29 @@ const EmotionalChat: React.FC = () => {
             }}
           />
         </Card>
+        <div style={{ marginBottom: '10px', display: 'flex', gap: '10px' }}>
+          <Select
+            style={{ width: 120 }}
+            value={selectedEmotion}
+            onChange={setSelectedEmotion}
+            options={emotionOptions}
+            placeholder="选择情绪"
+          />
+          <Select
+            style={{ width: 120 }}
+            value={selectedDialect}
+            onChange={setSelectedDialect}
+            options={dialectOptions}
+            placeholder="选择方言"
+          />
+          <Select
+            style={{ width: 120 }}
+            value={selectedVoice}
+            onChange={setSelectedVoice}
+            options={voiceOptions}
+            placeholder="选择音色"
+          />
+        </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           <Input
             placeholder="输入你想说的话..."

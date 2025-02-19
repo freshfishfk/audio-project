@@ -1,62 +1,124 @@
-import React from 'react';
-import { Table, Space, Button } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Table, Space, Button, message } from 'antd';
+import dayjs from 'dayjs';
+
+interface AudioItem {
+  customName: string;
+  model: string;
+  text: string;
+  uri: string;
+}
 
 const AudioList: React.FC = () => {
+  const [loading, setLoading] = useState(false);
+  const [audioList, setAudioList] = useState<AudioItem[]>([]);
+  const [audioPlaying, setAudioPlaying] = useState<string | null>(null);
+
+  const fetchAudioList = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('https://api.siliconflow.cn/v1/audio/voice/list', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_API_KEY}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('获取音频列表失败');
+      }
+
+      const data = await response.json();
+      setAudioList(data.result || []);
+    } catch (error) {
+      message.error('获取音频列表失败：' + (error instanceof Error ? error.message : '未知错误'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (uri: string) => {
+    try {
+      const response = await fetch(`https://api.siliconflow.cn/v1/audio/voice/${uri}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_API_KEY}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('删除音频失败');
+      }
+
+      message.success('删除成功');
+      fetchAudioList();
+    } catch (error) {
+      message.error('删除失败：' + (error instanceof Error ? error.message : '未知错误'));
+    }
+  };
+
+  useEffect(() => {
+    fetchAudioList();
+  }, []);
+
   const columns = [
     {
-      title: '音频名称',
-      dataIndex: 'name',
-      key: 'name',
+      title: '音频标题',
+      dataIndex: 'customName',
+      key: 'customName',
     },
     {
-      title: '时长',
-      dataIndex: 'duration',
-      key: 'duration',
+      title: '模型',
+      dataIndex: 'model',
+      key: 'model',
     },
     {
-      title: '大小',
-      dataIndex: 'size',
-      key: 'size',
+      title: '文本内容',
+      dataIndex: 'text',
+      key: 'text',
+      width: '30%',
+      render: (text: string) => (
+        <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{text}</div>
+      )
     },
     {
-      title: '上传时间',
-      dataIndex: 'uploadTime',
-      key: 'uploadTime',
+      title: '音频标识',
+      dataIndex: 'uri',
+      key: 'uri',
+      width: '25%',
+      render: (text: string) => (
+        <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{text}</div>
+      )
     },
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: any) => (
+      render: (_: any, record: AudioItem) => (
         <Space size="middle">
-          <Button type="link">播放</Button>
-          <Button type="link">编辑</Button>
-          <Button type="link" danger>删除</Button>
+          <Button
+            type="link"
+            danger
+            onClick={() => handleDelete(record.uri)}
+          >
+            删除
+          </Button>
         </Space>
       ),
     },
   ];
 
-  const data = [
-    {
-      key: '1',
-      name: '示例音频1.mp3',
-      duration: '3:45',
-      size: '5.2MB',
-      uploadTime: '2024-01-20 10:30:00',
-    },
-    {
-      key: '2',
-      name: '示例音频2.wav',
-      duration: '2:30',
-      size: '3.8MB',
-      uploadTime: '2024-01-19 15:20:00',
-    },
-  ];
-
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-4">音频列表</h1>
-      <Table columns={columns} dataSource={data} />
+    <div className="max-w-7xl mx-auto px-4">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">音频列表</h1>
+        <Button type="primary" onClick={fetchAudioList}>刷新</Button>
+      </div>
+      <Table
+        columns={columns}
+        dataSource={audioList}
+        loading={loading}
+        rowKey="uri"
+      />
     </div>
   );
 };
