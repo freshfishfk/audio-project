@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, List, Button, Typography, Space, Progress } from 'antd';
 import { PlayCircleOutlined, PauseCircleOutlined, BookOutlined } from '@ant-design/icons';
 
-const { Title, Paragraph } = Typography;
+const { Title } = Typography;
 
 interface Chapter {
   id: number;

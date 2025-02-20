@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Space, Button, message } from 'antd';
-import dayjs from 'dayjs';
 
 interface AudioItem {
   customName: string;
@@ -12,7 +11,6 @@ interface AudioItem {
 const AudioList: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [audioList, setAudioList] = useState<AudioItem[]>([]);
-  const [audioPlaying, setAudioPlaying] = useState<string | null>(null);
 
   const fetchAudioList = async () => {
     setLoading(true);

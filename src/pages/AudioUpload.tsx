@@ -23,7 +23,7 @@ const AudioUpload: React.FC = () => {
     mediaBlobUrl
   } = useReactMediaRecorder({
     audio: true,
-    onStop: async (blobUrl, blob) => {
+    onStop: async (_, blob) => {
       if (blob) {
         const base64 = await fileToBase64(new File([blob], 'recording.wav', { type: 'audio/wav' }));
         setAudioBase64(base64);
