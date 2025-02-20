@@ -149,7 +149,7 @@ const EmotionalChat: React.FC = () => {
 
     const selectedRolePrompt = selectedRole ? systemRoles.find(role => role.id === selectedRole)?.prompt : '';
     console.log(selectedRole, selectedRolePrompt)
-    const speechPrompt = `请以${emotionOptions.find(e => e.value === selectedEmotion)?.label + '的语气'}表达<|endofprompt|>`
+    const speechPrompt = `请以${emotionOptions.find(e => e.value === selectedEmotion)?.label + '的语气'}${selectedDialect ? `，用${selectedDialect}` : ''}表达<|endofprompt|>`
     try {
       // 生成对话响应
       const chatResponse = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
@@ -564,28 +564,34 @@ const EmotionalChat: React.FC = () => {
           )}
 
         </Card>
-        <div style={{ marginBottom: '10px', display: 'flex', gap: '10px' }}>
-          <Select
-            style={{ width: 120 }}
-            value={selectedEmotion}
-            onChange={setSelectedEmotion}
-            options={emotionOptions}
-            placeholder="选择情绪"
-          />
-          <Select
-            style={{ width: 120 }}
-            value={selectedDialect}
-            onChange={setSelectedDialect}
-            options={dialectOptions}
-            placeholder="选择方言"
-          />
-          <Select
-            style={{ width: 120 }}
-            value={selectedVoice}
-            onChange={setSelectedVoice}
-            options={voiceOptions}
-            placeholder="选择音色"
-          />
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>情绪：</span>
+            <Select
+              value={selectedEmotion}
+              onChange={setSelectedEmotion}
+              options={emotionOptions}
+              style={{ width: 120 }}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>方言：</span>
+            <Select
+              value={selectedDialect}
+              onChange={setSelectedDialect}
+              options={dialectOptions}
+              style={{ width: 120 }}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>音色：</span>
+            <Select
+              value={selectedVoice}
+              onChange={setSelectedVoice}
+              options={voiceOptions}
+              style={{ width: 120 }}
+            />
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           <Input
