@@ -6,7 +6,7 @@ import {
   HomeOutlined,
   SoundOutlined,
   UploadOutlined,
-  ToolOutlined,
+  BookOutlined,
   InfoCircleOutlined,
   MessageOutlined
 } from '@ant-design/icons';
@@ -26,7 +26,7 @@ const MainLayout: React.FC = () => {
     },
     {
       key: '/audio-list',
-      label: '音频列表',
+      label: '音色列表',
       icon: <SoundOutlined />
     },
     {
@@ -35,9 +35,9 @@ const MainLayout: React.FC = () => {
       icon: <UploadOutlined />
     },
     {
-      key: '/audio-process',
-      label: '音频处理',
-      icon: <ToolOutlined />
+      key: '/audio-book',
+      label: '有声书阅读',
+      icon: <BookOutlined />
     },
     {
       key: '/emotional-chat',

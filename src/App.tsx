@@ -5,7 +5,7 @@ import About from './pages/About'
 import MainLayout from './layouts/MainLayout'
 import AudioList from './pages/AudioList'
 import AudioUpload from './pages/AudioUpload'
-import AudioProcess from './pages/AudioProcess'
+import AudioBook from './pages/AudioBook'
 import EmotionalChat from './pages/EmotionalChat'
 
 function App() {
@@ -16,7 +16,7 @@ function App() {
         <Route path="/about" element={<About />} />
         <Route path="/audio-list" element={<AudioList />} />
         <Route path="/audio-upload" element={<AudioUpload />} />
-        <Route path="/audio-process" element={<AudioProcess />} />
+        <Route path="/audio-book" element={<AudioBook />} />
         <Route path="/emotional-chat" element={<EmotionalChat />} />
       </Route>
     </Routes>

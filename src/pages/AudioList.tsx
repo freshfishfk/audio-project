@@ -25,13 +25,13 @@ const AudioList: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error('获取音频列表失败');
+        throw new Error('获取音色列表失败');
       }
 
       const data = await response.json();
       setAudioList(data.result || []);
     } catch (error) {
-      message.error('获取音频列表失败：' + (error instanceof Error ? error.message : '未知错误'));
+      message.error('获取音色列表失败：' + (error instanceof Error ? error.message : '未知错误'));
     } finally {
       setLoading(false);
     }
@@ -110,7 +110,7 @@ const AudioList: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">音频列表</h1>
+        <h1 className="text-2xl font-bold">音色列表</h1>
         <Button type="primary" onClick={fetchAudioList}>刷新</Button>
       </div>
       <Table

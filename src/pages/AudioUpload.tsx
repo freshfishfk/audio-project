@@ -52,7 +52,7 @@ const AudioUpload: React.FC = () => {
         setAudioBase64(base64);
         return false; // 阻止自动上传
       } catch (error) {
-        message.error('文件读取失败', error);
+        message.error('文件读取失败');
         return false;
       }
     },
@@ -116,15 +116,15 @@ const AudioUpload: React.FC = () => {
       onFinish={onFinish}
     >
       <Form.Item
-        label="音频标题"
+        label="音色标题"
         name="title"
-        rules={[{ required: true, message: '请输入音频标题' }]}
+        rules={[{ required: true, message: '请输入音色标题' }]}
       >
-        <Input placeholder="请输入音频标题" />
+        <Input placeholder="请输入音色标题" />
       </Form.Item>
 
       <Form.Item
-        label="音频描述"
+        label="音色描述"
         name="description"
       >
         <Input.TextArea rows={4} placeholder="请输入音频描述（选填）" />
@@ -148,7 +148,7 @@ const AudioUpload: React.FC = () => {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">音频上传</h1>
+      <h1 className="text-2xl font-bold mb-6">音色上传</h1>
       <Tabs
         defaultActiveKey="upload"
         items={[
