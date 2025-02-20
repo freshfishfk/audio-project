@@ -12,7 +12,10 @@ interface ChatMessage {
   audioUrl?: string;
   thinkingProcess?: string;
   isLoading?: boolean;
+  isSystem?: boolean;
 }
+
+import { systemRoles } from '../config/systemRoles';
 
 interface Conversation {
   id: string;
@@ -26,6 +29,7 @@ const EmotionalChat: React.FC = () => {
     const savedConversations = localStorage.getItem('conversations');
     return savedConversations ? JSON.parse(savedConversations) : [];
   });
+  const [selectedRole, setSelectedRole] = useState<string>('');
   const [currentConversationId, setCurrentConversationId] = useState<string>(() => {
     if (conversations.length > 0) {
       return conversations[0].id;
@@ -75,7 +79,13 @@ const EmotionalChat: React.FC = () => {
             value: voice.uri,
             label: voice.customName
           }));
-          setVoiceOptions(options);
+          setVoiceOptions([
+            {
+              value: '',
+              label: '默认音色'
+            },
+            ...options,
+          ]);
         }
       } catch (error) {
         console.error('Error fetching voices:', error);
@@ -137,6 +147,8 @@ const EmotionalChat: React.FC = () => {
       return conv;
     }));
 
+    const selectedRolePrompt = selectedRole ? systemRoles.find(role => role.id === selectedRole)?.prompt : '';
+    console.log(selectedRole, selectedRolePrompt)
     const speechPrompt = `请以${emotionOptions.find(e => e.value === selectedEmotion)?.label + '的语气'}表达<|endofprompt|>`
     try {
       // 生成对话响应
@@ -148,12 +160,13 @@ const EmotionalChat: React.FC = () => {
           Authorization: `Bearer ${API_KEY}`,
         },
         body: JSON.stringify({
-          model: "deepseek-ai/DeepSeek-V3",
+          // model: "deepseek-ai/DeepSeek-V3",
+          model: "Qwen/Qwen2.5-72B-Instruct",
           messages: [
-            {
+            ...(selectedRolePrompt ? [{
               role: "system",
-              content: "你是一个专家"
-            },
+              content: selectedRolePrompt
+            }] : []),
             ...messages.slice(-5).map(msg => ({
               role: msg.type === 'user' ? 'user' : 'assistant',
               content: msg.content
@@ -240,6 +253,29 @@ const EmotionalChat: React.FC = () => {
     localStorage.setItem('conversations', JSON.stringify(conversations));
   }, [conversations]);
 
+  const handleRoleSelect = (roleId: string) => {
+    setSelectedRole(roleId);
+    const selectedRoleData = systemRoles.find(role => role.id === roleId);
+    if (selectedRoleData && currentConversationId) {
+      const systemMessage: ChatMessage = {
+        id: Date.now(),
+        content: selectedRoleData.prompt,
+        type: 'bot',
+        timestamp: new Date(),
+        isSystem: true
+      };
+      setConversations(prev => prev.map(conv => {
+        if (conv.id === currentConversationId) {
+          return {
+            ...conv,
+            messages: [systemMessage]
+          };
+        }
+        return conv;
+      }));
+    }
+  };
+
   const handleNewConversation = () => {
     const newConversation: Conversation = {
       id: Date.now().toString(),
@@ -325,6 +361,7 @@ const EmotionalChat: React.FC = () => {
   };
   return (
     <Layout className="chat-container" style={{ height: '100%', background: '#fff' }}>
+
       <Layout.Sider width={250} style={{ background: '#fff', borderRight: '1px solid #f0f0f0' }}>
         <div style={{ padding: '20px' }}>
           <Button type="primary" block onClick={handleNewConversation}>
@@ -332,7 +369,7 @@ const EmotionalChat: React.FC = () => {
           </Button>
         </div>
         <List
-          dataSource={conversations}
+          dataSource={[...conversations].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())}
           renderItem={conversation => (
             <List.Item
               key={conversation.id}
@@ -371,110 +408,144 @@ const EmotionalChat: React.FC = () => {
           style={{ flex: 1, marginBottom: '20px' }}
           extra={<Button danger onClick={handleClearAllMessages}>清空对话</Button>}
         >
-          <List
-            className="chat-list"
-            itemLayout="horizontal"
-            dataSource={messages}
-            renderItem={(message) => (
-              <List.Item style={{
-                textAlign: message.type === 'user' ? 'right' : 'left',
-                padding: '8px 20px',
-                display: 'flex',
-                justifyContent: message.type === 'user' ? 'flex-end' : 'flex-start'
+          {messages.length === 0 && (
+            <div style={{ marginBottom: '20px' }}>
+              <h3 style={{ marginBottom: '16px' }}>选择系统角色</h3>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: '12px',
+                maxHeight: '400px',
+                overflowY: 'auto',
+                padding: '4px'
               }}>
-                <div style={{
+                {systemRoles.map(role => (
+                  <Card
+                    key={role.id}
+                    hoverable
+                    style={{
+                      background: selectedRole === role.id ? '#e6f7ff' : '#f5f5f5',
+                      cursor: 'pointer',
+                      // height: '100%'
+                    }}
+                    onClick={() => handleRoleSelect(role.id)}
+                  >
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>{role.name}</div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>{role.description}</div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+          {messages.length > 0 && (
+            <List
+              className="chat-list"
+              itemLayout="horizontal"
+              dataSource={messages}
+              renderItem={(message) => (
+                <List.Item style={{
+                  textAlign: message.type === 'user' ? 'right' : 'left',
+                  padding: '8px 20px',
                   display: 'flex',
-                  flexDirection: message.type === 'user' ? 'row-reverse' : 'row',
-                  alignItems: 'flex-start',
-                  gap: '8px',
-                  maxWidth: '80%',
-                  position: 'relative'
+                  justifyContent: message.type === 'user' ? 'flex-end' : 'flex-start'
                 }}>
-                  <Button
-                    type="text"
-                    icon={<DeleteOutlined />}
-                    size="small"
-                    onClick={() => handleDeleteMessage(message.id)}
-                    className="delete-button"
-                    style={{
-                      position: 'absolute',
-                      [message.type === 'user' ? 'left' : 'right']: '-24px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      opacity: 0,
-                      transition: 'opacity 0.3s'
-                    }}
-                  />
-                  <Avatar
-                    icon={message.type === 'user' ? <UserOutlined /> : <RobotOutlined />}
-                    style={{
-                      backgroundColor: message.type === 'user' ? '#1890ff' : '#52c41a',
-                      flexShrink: 0
-                    }}
-                  />
                   <div style={{
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px',
-                    width: '100%'
+                    flexDirection: message.type === 'user' ? 'row-reverse' : 'row',
+                    alignItems: 'flex-start',
+                    gap: '8px',
+                    maxWidth: '80%',
+                    position: 'relative'
                   }}>
-                    <span style={{
-                      fontSize: '12px',
-                      color: '#999',
-                      textAlign: message.type === 'user' ? 'right' : 'left',
-                      marginBottom: '4px'
+                    <Button
+                      type="text"
+                      icon={<DeleteOutlined />}
+                      size="small"
+                      // onClick={() => handleDeleteMessage(message.id)}
+                      className="delete-button"
+                      style={{
+                        position: 'absolute',
+                        [message.type === 'user' ? 'left' : 'right']: '-24px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        opacity: 0,
+                        transition: 'opacity 0.3s'
+                      }}
+                    />
+                    <Avatar
+                      icon={message.type === 'user' ? <UserOutlined /> : <RobotOutlined />}
+                      style={{
+                        backgroundColor: message.type === 'user' ? '#1890ff' : '#52c41a',
+                        flexShrink: 0
+                      }}
+                    />
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px',
+                      width: '100%'
                     }}>
-                      {new Date(message.timestamp).toLocaleString('zh-CN', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit'
-                      })}
-                    </span>
-                    {message.isLoading ? (
-                      <div style={{ padding: '8px 12px', minWidth: '200px' }}>
-                        <Skeleton active paragraph={{ rows: 1 }} title={false} />
-                      </div>
-                    ) : (
-                      <>
-                        {message.type === 'bot' && message.thinkingProcess && (
-                          <div style={{
-                            padding: '10px',
-                            background: '#f9f9f9',
-                            border: '1px solid #e8e8e8',
-                            borderRadius: '4px',
-                            marginBottom: '8px'
-                          }}>
-                            <div style={{ color: '#666', marginBottom: '4px' }}>思维过程：</div>
-                            <div style={{ color: '#333' }}>{message.thinkingProcess}</div>
-                          </div>
-                        )}
-                        <div style={{
-                          background: message.type === 'user' ? '#1890ff' : '#f0f2f5',
-                          color: message.type === 'user' ? '#fff' : '#000',
-                          padding: '8px 12px',
-                          borderRadius: '8px',
-                          wordBreak: 'break-word'
-                        }}>
-                          {message.content}
+                      <span style={{
+                        fontSize: '12px',
+                        color: '#999',
+                        textAlign: message.type === 'user' ? 'right' : 'left',
+                        marginBottom: '4px'
+                      }}>
+                        {new Date(message.timestamp).toLocaleString('zh-CN', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                        })}
+                      </span>
+                      {message.isLoading ? (
+                        <div style={{ padding: '8px 12px', minWidth: '200px' }}>
+                          <Skeleton active paragraph={{ rows: 1 }} title={false} />
                         </div>
-                        {message.type === 'bot' && message.audioUrl && (
-                          <audio controls src={message.audioUrl} style={{ width: '100%', maxWidth: '400px', marginTop: '8px' }} />
-                        )}
-                      </>
-                    )}
+                      ) : (
+                        <>
+                          {message.type === 'bot' && message.thinkingProcess && (
+                            <div style={{
+                              padding: '10px',
+                              background: '#f9f9f9',
+                              border: '1px solid #e8e8e8',
+                              borderRadius: '4px',
+                              marginBottom: '8px'
+                            }}>
+                              <div style={{ color: '#666', marginBottom: '4px' }}>思维过程：</div>
+                              <div style={{ color: '#333' }}>{message.thinkingProcess}</div>
+                            </div>
+                          )}
+                          <div style={{
+                            background: message.type === 'user' ? '#1890ff' : '#f0f2f5',
+                            color: message.type === 'user' ? '#fff' : '#000',
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            wordBreak: 'break-word'
+                          }}>
+                            {message.content}
+                          </div>
+                          {message.type === 'bot' && message.audioUrl && (
+                            <audio controls src={message.audioUrl} style={{ width: '100%', maxWidth: '400px', marginTop: '8px' }} />
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </List.Item>
-            )}
-            style={{
-              height: 'calc(100vh - 280px)',
-              overflowY: 'auto',
-              padding: '0 20px'
-            }}
-          />
+                </List.Item>
+              )}
+              style={{
+                height: 'calc(100vh - 280px)',
+                overflowY: 'auto',
+                padding: '0 20px'
+              }}
+            />
+          )}
+
         </Card>
         <div style={{ marginBottom: '10px', display: 'flex', gap: '10px' }}>
           <Select
