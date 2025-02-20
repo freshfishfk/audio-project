@@ -223,12 +223,12 @@ const EmotionalChat: React.FC = () => {
       const audioBlob = await ttsResponse.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
 
+      // 先更新文本消息
       const botMessage: ChatMessage = {
         id: Date.now(),
         content: displayReply,
         type: 'bot',
         timestamp: new Date(),
-        audioUrl: audioUrl,
         thinkingProcess: currentThinkingProcess
       };
 
@@ -243,6 +243,23 @@ const EmotionalChat: React.FC = () => {
         }
         return conv;
       }));
+
+      // 等待文本更新完成后，再更新音频并自动播放
+      setTimeout(() => {
+        const audio = new Audio(audioUrl);
+        audio.play();
+        setConversations(prev => prev.map(conv => {
+          if (conv.id === currentConversationId) {
+            return {
+              ...conv,
+              messages: conv.messages.map(msg =>
+                msg.id === botMessage.id ? { ...msg, audioUrl } : msg
+              )
+            };
+          }
+          return conv;
+        }));
+      }, 100);
     } catch (error) {
       console.error('Error processing chat:', error);
     }
