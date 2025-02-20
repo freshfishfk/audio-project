@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Layout, Input, Button, List, Avatar, Card, Skeleton, Select } from 'antd';
-import { SendOutlined, UserOutlined, RobotOutlined, AudioOutlined } from '@ant-design/icons';
+import { SendOutlined, UserOutlined, RobotOutlined, AudioOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const { Content } = Layout;
 
@@ -14,10 +14,23 @@ interface ChatMessage {
   isLoading?: boolean;
 }
 
+interface Conversation {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: Date;
+}
+
 const EmotionalChat: React.FC = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    const savedMessages = localStorage.getItem('chatMessages');
-    return savedMessages ? JSON.parse(savedMessages) : [];
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    const savedConversations = localStorage.getItem('conversations');
+    return savedConversations ? JSON.parse(savedConversations) : [];
+  });
+  const [currentConversationId, setCurrentConversationId] = useState<string>(() => {
+    if (conversations.length > 0) {
+      return conversations[0].id;
+    }
+    return '';
   });
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -27,6 +40,9 @@ const EmotionalChat: React.FC = () => {
   const [voiceOptions, setVoiceOptions] = useState<Array<{ value: string; label: string }>>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  const currentConversation = conversations.find(conv => conv.id === currentConversationId);
+  const messages = currentConversation?.messages || [];
 
   const emotionOptions = [
     { value: 'neutral', label: '中性' },
@@ -71,6 +87,17 @@ const EmotionalChat: React.FC = () => {
   const handleSend = async () => {
     if (!inputValue.trim()) return;
 
+    if (!currentConversationId) {
+      const newConversation: Conversation = {
+        id: Date.now().toString(),
+        title: inputValue.slice(0, 20) + (inputValue.length > 20 ? '...' : ''),
+        messages: [],
+        createdAt: new Date()
+      };
+      setConversations(prev => [...prev, newConversation]);
+      setCurrentConversationId(newConversation.id);
+    }
+
     const newMessage: ChatMessage = {
       id: Date.now(),
       content: inputValue,
@@ -78,75 +105,20 @@ const EmotionalChat: React.FC = () => {
       timestamp: new Date(),
     };
 
-    setMessages([...messages, newMessage]);
+    setConversations(prev => prev.map(conv => {
+      if (conv.id === currentConversationId) {
+        return {
+          ...conv,
+          messages: [...conv.messages, newMessage]
+        };
+      }
+      return conv;
+    }));
     setInputValue('');
     await processUserInput(inputValue);
   };
 
-  const toggleRecording = async () => {
-    if (!isRecording) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
-
-        mediaRecorder.ondataavailable = (e) => {
-          audioChunksRef.current.push(e.data);
-        };
-
-        mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(audioChunksRef.current);
-          await processAudio(audioBlob);
-          stream.getTracks().forEach(track => track.stop());
-        };
-
-        mediaRecorder.start();
-        setIsRecording(true);
-      } catch (error) {
-        console.error('Error accessing microphone:', error);
-      }
-    } else if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
-
-  const processAudio = async (audioBlob: Blob) => {
-    const formData = new FormData();
-    formData.append("model", "FunAudioLLM/SenseVoiceSmall");
-    formData.append('file', audioBlob, 'recording.wav');
-
-    try {
-      // 语音转文本
-      const transcriptionResponse = await fetch('https://api.siliconflow.cn/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${API_KEY}`,
-        },
-        body: formData
-      });
-      const transcriptionResult = await transcriptionResponse.json();
-
-      if (transcriptionResult.text) {
-        const newMessage: ChatMessage = {
-          id: Date.now(),
-          content: transcriptionResult.text,
-          type: 'user',
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, newMessage]);
-        await processUserInput(transcriptionResult.text);
-      }
-    } catch (error) {
-      console.error('Error processing audio:', error);
-    }
-  };
-
-  // 移除未使用的 thinkingProcess state，因为它的值已经包含在每个消息中
-
   const processUserInput = async (input: string) => {
-    // 添加一个加载状态的消息
     const loadingMessage: ChatMessage = {
       id: Date.now(),
       content: '',
@@ -154,22 +126,43 @@ const EmotionalChat: React.FC = () => {
       timestamp: new Date(),
       isLoading: true
     };
-    setMessages(prev => [...prev, loadingMessage]);
-    const speechPrompt = `请以${selectedEmotion === 'neutral' ? '平静的语气' :
-      emotionOptions.find(e => e.value === selectedEmotion)?.label + '的语气'}表达<|endprompt|>`
+
+    setConversations(prev => prev.map(conv => {
+      if (conv.id === currentConversationId) {
+        return {
+          ...conv,
+          messages: [...conv.messages, loadingMessage]
+        };
+      }
+      return conv;
+    }));
+
+    const speechPrompt = `请以${emotionOptions.find(e => e.value === selectedEmotion)?.label + '的语气'}表达<|endofprompt|>`
     try {
       // 生成对话响应
-      const chatResponse = await fetch('http://127.0.0.1:11434/v1/chat/completions', {
+      const chatResponse = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+        // const chatResponse = await fetch('http://127.0.0.1:11434/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${API_KEY}`,
         },
         body: JSON.stringify({
-          model: "deepseek-r1:8b",
-          messages: [{
-            role: "user",
-            content: `${input}`
-          }]
+          model: "deepseek-ai/DeepSeek-V3",
+          messages: [
+            {
+              role: "system",
+              content: "你是一个专家"
+            },
+            ...messages.slice(-5).map(msg => ({
+              role: msg.type === 'user' ? 'user' : 'assistant',
+              content: msg.content
+            })),
+            {
+              role: "user",
+              content: input
+            }
+          ]
         })
       });
       const chatResult = await chatResponse.json();
@@ -226,17 +219,17 @@ const EmotionalChat: React.FC = () => {
         thinkingProcess: currentThinkingProcess
       };
 
-      setMessages(prev => prev.map(msg =>
-        msg.isLoading ? botMessage : msg
-      ));
-
-      // 自动滚动到最新消息
-      const chatList = document.querySelector('.chat-list');
-      if (chatList) {
-        setTimeout(() => {
-          chatList.scrollTop = chatList.scrollHeight;
-        }, 100);
-      }
+      setConversations(prev => prev.map(conv => {
+        if (conv.id === currentConversationId) {
+          return {
+            ...conv,
+            messages: conv.messages.map(msg =>
+              msg.isLoading ? botMessage : msg
+            )
+          };
+        }
+        return conv;
+      }));
     } catch (error) {
       console.error('Error processing chat:', error);
     }
@@ -244,12 +237,140 @@ const EmotionalChat: React.FC = () => {
 
   // 添加 useEffect 来监听消息列表变化并保存到 localStorage
   useEffect(() => {
-    localStorage.setItem('chatMessages', JSON.stringify(messages));
-  }, [messages]);
+    localStorage.setItem('conversations', JSON.stringify(conversations));
+  }, [conversations]);
+
+  const handleNewConversation = () => {
+    const newConversation: Conversation = {
+      id: Date.now().toString(),
+      title: '新对话',
+      messages: [],
+      createdAt: new Date()
+    };
+    setConversations(prev => [...prev, newConversation]);
+    setCurrentConversationId(newConversation.id);
+  };
+
+  const handleDeleteConversation = (convId: string) => {
+    setConversations(prev => prev.filter(conv => conv.id !== convId));
+    if (currentConversationId === convId) {
+      setCurrentConversationId(conversations[0]?.id || '');
+    }
+  };
+
+  const handleClearAllMessages = () => {
+    if (!currentConversationId) return;
+    setConversations(prev => prev.map(conv => {
+      if (conv.id === currentConversationId) {
+        return {
+          ...conv,
+          messages: []
+        };
+      }
+      return conv;
+    }));
+  };
+
+  const toggleRecording = async () => {
+    if (!isRecording) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+          try {
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'recording.wav');
+            formData.append('model', 'whisper-1');
+            formData.append('language', 'zh');
+
+            const response = await fetch('https://api.siliconflow.cn/v1/audio/transcriptions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${API_KEY}`,
+              },
+              body: formData
+            });
+
+            const data = await response.json();
+            if (data.text) {
+              setInputValue(data.text);
+            }
+          } catch (error) {
+            console.error('Error transcribing audio:', error);
+          }
+
+          // 清理资源
+          stream.getTracks().forEach(track => track.stop());
+        };
+
+        mediaRecorder.start();
+        setIsRecording(true);
+      } catch (error) {
+        console.error('Error accessing microphone:', error);
+      }
+    } else if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
   return (
     <Layout className="chat-container" style={{ height: '100%', background: '#fff' }}>
+      <Layout.Sider width={250} style={{ background: '#fff', borderRight: '1px solid #f0f0f0' }}>
+        <div style={{ padding: '20px' }}>
+          <Button type="primary" block onClick={handleNewConversation}>
+            新建对话
+          </Button>
+        </div>
+        <List
+          dataSource={conversations}
+          renderItem={conversation => (
+            <List.Item
+              key={conversation.id}
+              onClick={() => setCurrentConversationId(conversation.id)}
+              style={{
+                padding: '12px 20px',
+                cursor: 'pointer',
+                background: currentConversationId === conversation.id ? '#e6f7ff' : 'transparent'
+              }}
+              actions={[
+                <Button
+                  type="text"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteConversation(conversation.id);
+                  }}
+                />
+              ]}
+            >
+              <div>
+                <div style={{ fontWeight: 500 }}>{conversation.title}</div>
+                <div style={{ fontSize: '12px', color: '#999' }}>
+                  {new Date(conversation.createdAt).toLocaleDateString()}
+                </div>
+              </div>
+            </List.Item>
+          )}
+          style={{ height: 'calc(100vh - 80px)', overflowY: 'auto' }}
+        />
+      </Layout.Sider>
       <Content style={{ padding: '20px', display: 'flex', flexDirection: 'column' }}>
-        <Card title="情感聊天" style={{ flex: 1, marginBottom: '20px' }}>
+        <Card
+          title="情感聊天"
+          style={{ flex: 1, marginBottom: '20px' }}
+          extra={<Button danger onClick={handleClearAllMessages}>清空对话</Button>}
+        >
           <List
             className="chat-list"
             itemLayout="horizontal"
@@ -266,8 +387,24 @@ const EmotionalChat: React.FC = () => {
                   flexDirection: message.type === 'user' ? 'row-reverse' : 'row',
                   alignItems: 'flex-start',
                   gap: '8px',
-                  maxWidth: '80%'
+                  maxWidth: '80%',
+                  position: 'relative'
                 }}>
+                  <Button
+                    type="text"
+                    icon={<DeleteOutlined />}
+                    size="small"
+                    onClick={() => handleDeleteMessage(message.id)}
+                    className="delete-button"
+                    style={{
+                      position: 'absolute',
+                      [message.type === 'user' ? 'left' : 'right']: '-24px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      opacity: 0,
+                      transition: 'opacity 0.3s'
+                    }}
+                  />
                   <Avatar
                     icon={message.type === 'user' ? <UserOutlined /> : <RobotOutlined />}
                     style={{
@@ -323,8 +460,8 @@ const EmotionalChat: React.FC = () => {
                         }}>
                           {message.content}
                         </div>
-                        {message.audioUrl && message.type === 'bot' && (
-                          <audio controls src={message.audioUrl} style={{ maxWidth: '200px' }} />
+                        {message.type === 'bot' && message.audioUrl && (
+                          <audio controls src={message.audioUrl} style={{ width: '100%', maxWidth: '400px', marginTop: '8px' }} />
                         )}
                       </>
                     )}
