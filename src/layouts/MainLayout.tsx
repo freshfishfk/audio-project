@@ -35,6 +35,11 @@ const MainLayout: React.FC = () => {
       icon: <UploadOutlined />
     },
     {
+      key: '/book-list',
+      label: '电子书列表',
+      icon: <BookOutlined />
+    },
+    {
       key: '/audio-book',
       label: '有声书阅读',
       icon: <BookOutlined />
