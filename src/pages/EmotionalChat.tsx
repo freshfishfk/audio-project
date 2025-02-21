@@ -342,9 +342,8 @@ const EmotionalChat: React.FC = () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
           try {
             const formData = new FormData();
-            formData.append('file', audioBlob, 'recording.wav');
-            formData.append('model', 'whisper-1');
-            formData.append('language', 'zh');
+            formData.append('model', 'FunAudioLLM/SenseVoiceSmall');
+            formData.append('file', audioBlob, 'audio.wav');
 
             const response = await fetch('https://api.siliconflow.cn/v1/audio/transcriptions', {
               method: 'POST',
