@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Upload, List, Button, Typography, Space, message, Radio, Segmented } from 'antd';
-import { UploadOutlined, BookOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { Upload, List, Button, Typography, Space, message, Radio, Segmented, Spin } from 'antd';
+import { UploadOutlined, BookOutlined, ArrowLeftOutlined, PlayCircleOutlined, PauseCircleOutlined } from '@ant-design/icons';
 import { UploadProps } from 'antd';
 
 const { Title } = Typography;
@@ -39,9 +39,18 @@ const AudioBook: React.FC = () => {
   }, [bookId]);
   const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
   const [hoveredSentence, setHoveredSentence] = useState<string | null>(null);
+  const [playingSentence, setPlayingSentence] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [theme, setTheme] = useState<ThemeType>('light');
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const nextAudioRef = useRef<HTMLAudioElement | null>(null);
+  const API_KEY = 'sk-bmpnjwoudgongymjxddhuwzgllfrszdbfsgygjkhhgfwizvz';
   const [readingMode, setReadingMode] = useState<ReadingModeType>('scroll');
   const [currentPage, setCurrentPage] = useState(0);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(false);
+  const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
+  const preloadQueueRef = useRef<{ sentence: string; audioUrl: string | null }[]>([]);
+  const audioCache = useRef<Map<string, string>>(new Map());
 
   // 主题配置
   const themeStyles = {
@@ -220,6 +229,134 @@ const AudioBook: React.FC = () => {
       displayContent = content;
     }
 
+    // 预加载指定句子的音频
+    const preloadAudio = async (sentences: string[]) => {
+      const results: { [key: string]: string } = {};
+      const toFetch = sentences.filter(sentence => !audioCache.current.has(sentence));
+
+      if (toFetch.length > 0) {
+        try {
+          const responses = await Promise.all(toFetch.map(sentence =>
+            fetch('https://api.siliconflow.cn/v1/audio/speech', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${API_KEY}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                model: "FunAudioLLM/CosyVoice2-0.5B",
+                voice: "FunAudioLLM/CosyVoice2-0.5B:anna",
+                response_format: "mp3",
+                gain: 0,
+                stream: false,
+                input: sentence
+              })
+            })
+          ));
+
+          const blobs = await Promise.all(responses.map(res => res.blob()));
+          toFetch.forEach((sentence, index) => {
+            const audioUrl = URL.createObjectURL(blobs[index]);
+            audioCache.current.set(sentence, audioUrl);
+            results[sentence] = audioUrl;
+          });
+        } catch (error) {
+          console.error('Error preloading audio:', error);
+        }
+      }
+
+      // 返回所有句子的音频URL（包括缓存的）
+      return sentences.map(sentence => ({
+        sentence,
+        audioUrl: results[sentence] || audioCache.current.get(sentence) || null
+      }));
+    };
+
+    // 更新预加载队列
+    const updatePreloadQueue = async (currentIndex: number) => {
+      const maxPreloadCount = 3; // 预加载窗口大小
+      const endIndex = Math.min(currentIndex + maxPreloadCount, displayContent.length);
+      const preloadSentences = displayContent.slice(currentIndex, endIndex);
+
+      // 清理过期的缓存
+      const maxCacheSize = 10;
+      if (audioCache.current.size > maxCacheSize) {
+        const entries = Array.from(audioCache.current.entries());
+        entries.slice(0, entries.length - maxCacheSize).forEach(([key]) => {
+          const url = audioCache.current.get(key);
+          if (url) {
+            URL.revokeObjectURL(url);
+            audioCache.current.delete(key);
+          }
+        });
+      }
+
+      // 预加载音频
+      await preloadAudio(preloadSentences);
+    };
+
+    const handlePlayClick = async (sentence: string, index: number) => {
+      if (isLoading) return;
+      setIsLoading(true);
+      setPlayingSentence(sentence);
+      setCurrentSentenceIndex(index);
+      setIsAutoPlaying(true);
+      
+      try {
+        // 预加载当前及后续句子
+        const audioResults = await preloadAudio([sentence]);
+        const audioUrl = audioResults[0]?.audioUrl;
+        
+        if (!audioUrl) {
+          throw new Error('无法加载音频');
+        }
+
+        // 更新预加载队列
+        updatePreloadQueue(index + 1);
+
+        // 播放当前句子的语音
+        if (audioRef.current) {
+          audioRef.current.src = audioUrl;
+        } else {
+          audioRef.current = new Audio(audioUrl);
+        }
+
+        // 监听当前音频播放结束事件
+        audioRef.current.onended = async () => {
+          setPlayingSentence(null);
+          // 如果有下一句，自动播放下一句
+          const nextSentence = displayContent[index + 1];
+          if (nextSentence) {
+            setPlayingSentence(nextSentence);
+            handlePlayClick(nextSentence, index + 1);
+          } else {
+            setIsAutoPlaying(false);
+            message.success('本章播放完成');
+          }
+        };
+
+        audioRef.current.play();
+      } catch (error) {
+        console.error('Error playing audio:', error);
+        message.error('播放音频失败');
+        setPlayingSentence(null);
+        setIsAutoPlaying(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    const handleStopPlaying = () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (nextAudioRef.current) {
+        nextAudioRef.current.pause();
+      }
+      setIsAutoPlaying(false);
+      // 不重置 playingSentence 和 currentSentenceIndex，以便恢复播放时从暂停处继续
+    };
+
     return (
       <div className="chapter-content">
         <div className="mb-6 flex justify-between items-center">
@@ -237,6 +374,27 @@ const AudioBook: React.FC = () => {
             />
           </Space>
         </div>
+        <div className="mb-4 flex items-center justify-between">
+          <Button
+            type="text"
+            size="large"
+            icon={isAutoPlaying ? <PauseCircleOutlined style={{ fontSize: '24px' }} /> : <PlayCircleOutlined style={{ fontSize: '24px' }} />}
+            onClick={() => {
+              if (isAutoPlaying) {
+                handleStopPlaying();
+              } else if (displayContent.length > 0) {
+                setIsAutoPlaying(true);
+                const startIndex = playingSentence ? currentSentenceIndex : 0;
+                handlePlayClick(displayContent[startIndex], startIndex);
+                // 预加载后续句子
+                updatePreloadQueue(startIndex);
+              }
+            }}
+          />
+          <span style={{ color: themeStyles[theme].text }}>
+            {playingSentence ? `正在播放: ${currentSentenceIndex + 1}/${displayContent.length}` : ''}
+          </span>
+        </div>
         <div style={{ ...contentStyle, overflowY: readingMode === 'scroll' ? 'auto' as const : 'hidden' as const }}>
           <div className="text-lg leading-relaxed">
             {displayContent.map((sentence, index) => (
@@ -248,11 +406,16 @@ const AudioBook: React.FC = () => {
                   padding: '2px 4px',
                   margin: '0 2px',
                   borderRadius: '4px',
-                  transition: 'all 0.2s ease-in-out'
+                  transition: 'all 0.2s ease-in-out',
+                  borderBottom: playingSentence === sentence ? `2px solid ${themeStyles[theme].text}` : 'none'
                 }}
                 onMouseEnter={() => setHoveredSentence(sentence)}
                 onMouseLeave={() => setHoveredSentence(null)}
+                onClick={() => handlePlayClick(sentence, index)}
               >
+                <span style={{ marginRight: '4px' }}>
+                  {playingSentence === sentence ? <Spin size="small" /> : null}
+                </span>
                 {sentence}
               </span>
             ))}
