@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Upload, List, Button, Typography, Space, message, Radio, Segmented, Spin } from 'antd';
+import { Upload, List, Button, Typography, Space, message, Radio, Segmented, Spin, Select } from 'antd';
 import { UploadOutlined, BookOutlined, ArrowLeftOutlined, PlayCircleOutlined, PauseCircleOutlined } from '@ant-design/icons';
 import { UploadProps } from 'antd';
 
 const { Title } = Typography;
 
+const endString = '<|endofprompt|>';
 interface Chapter {
   id: number;
   title: string;
@@ -42,15 +43,220 @@ const AudioBook: React.FC = () => {
   const [playingSentence, setPlayingSentence] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [theme, setTheme] = useState<ThemeType>('light');
+  const [selectedEmotion, setSelectedEmotion] = useState('neutral');
+  const [selectedDialect, setSelectedDialect] = useState('');
+  const [selectedVoice, setSelectedVoice] = useState('');
+  const [voiceOptions, setVoiceOptions] = useState<Array<{ value: string; label: string }>>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const nextAudioRef = useRef<HTMLAudioElement | null>(null);
   const API_KEY = 'sk-bmpnjwoudgongymjxddhuwzgllfrszdbfsgygjkhhgfwizvz';
+
+  // 监听声音配置变化
+  useEffect(() => {
+    // 清除音频缓存
+    Array.from(audioCache.current.values()).forEach(url => {
+      URL.revokeObjectURL(url);
+    });
+    audioCache.current.clear();
+
+    // 如果正在播放，停止当前播放
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    if (nextAudioRef.current) {
+      nextAudioRef.current.pause();
+    }
+
+    // 如果在自动播放模式下，使用新配置继续播放
+    if (isAutoPlaying && playingSentence && selectedChapter) {
+      const currentContent = selectedChapter.content;
+      handlePlayClick(currentContent[currentSentenceIndex], currentSentenceIndex, currentContent);
+    }
+  }, [selectedEmotion, selectedDialect, selectedVoice]);
+  const emotionOptions = [
+    { value: 'neutral', label: '中性' },
+    { value: 'happy', label: '快乐' },
+    { value: 'sad', label: '悲伤' },
+    { value: 'surprise', label: '惊喜' },
+    { value: 'angry', label: '愤怒' }
+  ];
+
+  const dialectOptions = [
+    { value: '', label: '普通话' },
+    { value: '四川话', label: '四川话' },
+    { value: '上海话', label: '上海话' },
+    { value: '天津话', label: '天津话' }
+  ];
+
+  // 获取可用音色列表
+  useEffect(() => {
+    const fetchVoices = async () => {
+      try {
+        const response = await fetch('https://api.siliconflow.cn/v1/audio/voice/list', {
+          headers: {
+            'Authorization': `Bearer ${API_KEY}`,
+          }
+        });
+        const data = await response.json();
+        if (data.result) {
+          const options = data.result.map((voice: { model: string; customName: string; text: string; uri: string }) => ({
+            value: voice.uri,
+            label: voice.customName
+          }));
+          setVoiceOptions([
+            {
+              value: '',
+              label: '默认音色'
+            },
+            ...options,
+          ]);
+        }
+      } catch (error) {
+        console.error('Error fetching voices:', error);
+      }
+    };
+    fetchVoices();
+  }, []);
   const [readingMode, setReadingMode] = useState<ReadingModeType>('scroll');
   const [currentPage, setCurrentPage] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const preloadQueueRef = useRef<{ sentence: string; audioUrl: string | null }[]>([]);
   const audioCache = useRef<Map<string, string>>(new Map());
+
+  // 预加载指定句子的音频
+  const preloadAudio = async (sentences: string[]) => {
+    const results: { [key: string]: string } = {};
+    // 生成缓存键，包含所有参数信息
+    const getCacheKey = (sentence: string) => {
+      return `${sentence}_${selectedVoice}_${selectedEmotion}_${selectedDialect}`;
+    };
+
+    // 过滤需要重新获取的句子
+    const toFetch = sentences.filter(sentence => !audioCache.current.has(getCacheKey(sentence)));
+
+    if (toFetch.length > 0) {
+      try {
+        const responses = await Promise.all(toFetch.map(sentence =>
+          fetch('https://api.siliconflow.cn/v1/audio/speech', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: "FunAudioLLM/CosyVoice2-0.5B",
+              voice: selectedVoice || "FunAudioLLM/CosyVoice2-0.5B:anna",
+              response_format: "mp3",
+              gain: 0,
+              stream: false,
+              input: `请以${emotionOptions.find(e => e.value === selectedEmotion)?.label + '的语气'}${selectedDialect ? `，用${selectedDialect}` : ''}表达${endString}${sentence}`
+            })
+          })
+        ));
+
+        const blobs = await Promise.all(responses.map(res => res.blob()));
+        toFetch.forEach((sentence, index) => {
+          const audioUrl = URL.createObjectURL(blobs[index]);
+          audioCache.current.set(getCacheKey(sentence), audioUrl);
+          results[sentence] = audioUrl;
+        });
+      } catch (error) {
+        console.error('Error preloading audio:', error);
+      }
+    }
+
+    // 返回所有句子的音频URL（包括缓存的）
+    return sentences.map(sentence => ({
+      sentence,
+      audioUrl: results[sentence] || audioCache.current.get(getCacheKey(sentence)) || null
+    }));
+  };
+
+  // 更新预加载队列
+  const updatePreloadQueue = async (currentIndex: number, content: string[]) => {
+    const maxPreloadCount = 3; // 预加载窗口大小
+    const endIndex = Math.min(currentIndex + maxPreloadCount, content.length);
+    const preloadSentences = content.slice(currentIndex, endIndex);
+
+    // 清理过期的缓存
+    const maxCacheSize = 10;
+    if (audioCache.current.size > maxCacheSize) {
+      const entries = Array.from(audioCache.current.entries());
+      entries.slice(0, entries.length - maxCacheSize).forEach(([key]) => {
+        const url = audioCache.current.get(key);
+        if (url) {
+          URL.revokeObjectURL(url);
+          audioCache.current.delete(key);
+        }
+      });
+    }
+
+    // 预加载音频
+    await preloadAudio(preloadSentences);
+  };
+
+  const handlePlayClick = async (sentence: string, index: number, content: string[]) => {
+    if (isLoading) return;
+    setIsLoading(true);
+    setPlayingSentence(sentence);
+    setCurrentSentenceIndex(index);
+    setIsAutoPlaying(true);
+
+    try {
+      // 预加载当前及后续句子
+      const audioResults = await preloadAudio([sentence]);
+      const audioUrl = audioResults[0]?.audioUrl;
+
+      if (!audioUrl) {
+        throw new Error('无法加载音频');
+      }
+
+      // 更新预加载队列
+      updatePreloadQueue(index + 1, content);
+
+      // 播放当前句子的语音
+      if (audioRef.current) {
+        audioRef.current.src = audioUrl;
+      } else {
+        audioRef.current = new Audio(audioUrl);
+      }
+
+      // 监听当前音频播放结束事件
+      audioRef.current.onended = async () => {
+        setPlayingSentence(null);
+        // 如果有下一句，自动播放下一句
+        const nextSentence = content[index + 1];
+        if (nextSentence) {
+          setPlayingSentence(nextSentence);
+          handlePlayClick(nextSentence, index + 1, content);
+        } else {
+          setIsAutoPlaying(false);
+          message.success('本章播放完成');
+        }
+      };
+
+      audioRef.current.play();
+    } catch (error) {
+      console.error('Error playing audio:', error);
+      message.error('播放音频失败');
+      setPlayingSentence(null);
+      setIsAutoPlaying(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStopPlaying = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    if (nextAudioRef.current) {
+      nextAudioRef.current.pause();
+    }
+    setIsAutoPlaying(false);
+    // 不重置 playingSentence 和 currentSentenceIndex，以便恢复播放时从暂停处继续
+  };
 
   // 主题配置
   const themeStyles = {
@@ -232,7 +438,13 @@ const AudioBook: React.FC = () => {
     // 预加载指定句子的音频
     const preloadAudio = async (sentences: string[]) => {
       const results: { [key: string]: string } = {};
-      const toFetch = sentences.filter(sentence => !audioCache.current.has(sentence));
+      // 生成缓存键，包含所有参数信息
+      const getCacheKey = (sentence: string) => {
+        return `${sentence}_${selectedVoice}_${selectedEmotion}_${selectedDialect}`;
+      };
+
+      // 过滤需要重新获取的句子
+      const toFetch = sentences.filter(sentence => !audioCache.current.has(getCacheKey(sentence)));
 
       if (toFetch.length > 0) {
         try {
@@ -245,11 +457,11 @@ const AudioBook: React.FC = () => {
               },
               body: JSON.stringify({
                 model: "FunAudioLLM/CosyVoice2-0.5B",
-                voice: "FunAudioLLM/CosyVoice2-0.5B:anna",
+                voice: selectedVoice || "FunAudioLLM/CosyVoice2-0.5B:anna",
                 response_format: "mp3",
                 gain: 0,
                 stream: false,
-                input: sentence
+                input: `请以${emotionOptions.find(e => e.value === selectedEmotion)?.label + '的语气'}${selectedDialect ? `，用${selectedDialect}` : ''}表达${endString}${sentence}`
               })
             })
           ));
@@ -257,7 +469,7 @@ const AudioBook: React.FC = () => {
           const blobs = await Promise.all(responses.map(res => res.blob()));
           toFetch.forEach((sentence, index) => {
             const audioUrl = URL.createObjectURL(blobs[index]);
-            audioCache.current.set(sentence, audioUrl);
+            audioCache.current.set(getCacheKey(sentence), audioUrl);
             results[sentence] = audioUrl;
           });
         } catch (error) {
@@ -268,7 +480,7 @@ const AudioBook: React.FC = () => {
       // 返回所有句子的音频URL（包括缓存的）
       return sentences.map(sentence => ({
         sentence,
-        audioUrl: results[sentence] || audioCache.current.get(sentence) || null
+        audioUrl: results[sentence] || audioCache.current.get(getCacheKey(sentence)) || null
       }));
     };
 
@@ -301,12 +513,12 @@ const AudioBook: React.FC = () => {
       setPlayingSentence(sentence);
       setCurrentSentenceIndex(index);
       setIsAutoPlaying(true);
-      
+
       try {
         // 预加载当前及后续句子
         const audioResults = await preloadAudio([sentence]);
         const audioUrl = audioResults[0]?.audioUrl;
-        
+
         if (!audioUrl) {
           throw new Error('无法加载音频');
         }
@@ -362,16 +574,37 @@ const AudioBook: React.FC = () => {
         <div className="mb-6 flex justify-between items-center">
           <Title level={4} style={{ margin: 0, color: themeStyles[theme].text }}>{selectedChapter.title}</Title>
           <Space>
-            <Radio.Group value={theme} onChange={e => setTheme(e.target.value)}>
+            {/* <Radio.Group value={theme} onChange={e => setTheme(e.target.value)}>
               <Radio.Button value="light">浅色</Radio.Button>
               <Radio.Button value="dark">深色</Radio.Button>
               <Radio.Button value="sepia">护眼</Radio.Button>
-            </Radio.Group>
-            <Segmented
+            </Radio.Group> */}
+            <Select
+              value={selectedEmotion}
+              onChange={value => setSelectedEmotion(value)}
+              style={{ width: 120 }}
+              options={emotionOptions}
+              placeholder="选择情绪"
+            />
+            <Select
+              value={selectedDialect}
+              onChange={value => setSelectedDialect(value)}
+              style={{ width: 120 }}
+              options={dialectOptions}
+              placeholder="选择方言"
+            />
+            <Select
+              value={selectedVoice}
+              onChange={value => setSelectedVoice(value)}
+              style={{ width: 120 }}
+              options={voiceOptions}
+              placeholder="选择音色"
+            />
+            {/* <Segmented
               options={[{ value: 'scroll', label: '滚动' }, { value: 'book', label: '翻页' }]}
               value={readingMode}
               onChange={value => setReadingMode(value as ReadingModeType)}
-            />
+            /> */}
           </Space>
         </div>
         <div className="mb-4 flex items-center justify-between">
@@ -463,16 +696,12 @@ const AudioBook: React.FC = () => {
       </div>
       {!currentBook && renderUpload()}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {currentBook && (
-          <>
-            <div className="md:col-span-1">
-              {renderChapterList()}
-            </div>
-            <div className="md:col-span-2">
-              {renderChapterContent()}
-            </div>
-          </>
-        )}
+        <div className="md:col-span-1">
+          {renderChapterList()}
+        </div>
+        <div className="md:col-span-2">
+          {renderChapterContent()}
+        </div>
       </div>
     </div>
   );
