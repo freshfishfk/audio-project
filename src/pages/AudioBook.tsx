@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Upload, List, Button, Typography, Space, message, Radio, Segmented, Spin, Select } from 'antd';
-import { UploadOutlined, BookOutlined, ArrowLeftOutlined, PlayCircleOutlined, PauseCircleOutlined } from '@ant-design/icons';
+import { Upload, List, Button, Typography, Space, message, Select, Spin } from 'antd';
+import { UploadOutlined, BookOutlined, PlayCircleOutlined, PauseCircleOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { UploadProps } from 'antd';
 
 const { Title } = Typography;
@@ -20,7 +20,6 @@ interface Book {
 }
 
 type ThemeType = 'light' | 'dark' | 'sepia';
-type ReadingModeType = 'scroll' | 'book';
 
 const AudioBook: React.FC = () => {
   const navigate = useNavigate();
@@ -39,17 +38,15 @@ const AudioBook: React.FC = () => {
     }
   }, [bookId]);
   const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
-  const [hoveredSentence, setHoveredSentence] = useState<string | null>(null);
   const [playingSentence, setPlayingSentence] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [theme, setTheme] = useState<ThemeType>('light');
+  const [theme] = useState<ThemeType>('light');
   const [selectedEmotion, setSelectedEmotion] = useState('neutral');
   const [selectedDialect, setSelectedDialect] = useState('');
   const [selectedVoice, setSelectedVoice] = useState('');
   const [voiceOptions, setVoiceOptions] = useState<Array<{ value: string; label: string }>>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const nextAudioRef = useRef<HTMLAudioElement | null>(null);
-  const API_KEY = 'sk-bmpnjwoudgongymjxddhuwzgllfrszdbfsgygjkhhgfwizvz';
 
   // 监听声音配置变化
   useEffect(() => {
@@ -81,7 +78,7 @@ const AudioBook: React.FC = () => {
     { value: 'angry', label: '愤怒' }
   ];
 
-  const dialectOptions = [
+  const dialectoptions = [
     { value: '', label: '普通话' },
     { value: '四川话', label: '四川话' },
     { value: '上海话', label: '上海话' },
@@ -94,7 +91,7 @@ const AudioBook: React.FC = () => {
       try {
         const response = await fetch('https://api.siliconflow.cn/v1/audio/voice/list', {
           headers: {
-            'Authorization': `Bearer ${API_KEY}`,
+            'Authorization': `Bearer ${import.meta.env.VITE_API_KEY}`,
           }
         });
         const data = await response.json();
@@ -117,11 +114,9 @@ const AudioBook: React.FC = () => {
     };
     fetchVoices();
   }, []);
-  const [readingMode, setReadingMode] = useState<ReadingModeType>('scroll');
-  const [currentPage, setCurrentPage] = useState(0);
+
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
-  const preloadQueueRef = useRef<{ sentence: string; audioUrl: string | null }[]>([]);
   const audioCache = useRef<Map<string, string>>(new Map());
 
   // 预加载指定句子的音频
@@ -141,7 +136,7 @@ const AudioBook: React.FC = () => {
           fetch('https://api.siliconflow.cn/v1/audio/speech', {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${API_KEY}`,
+              'Authorization': `Bearer ${import.meta.env.VITE_API_KEY}`,
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -245,17 +240,6 @@ const AudioBook: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleStopPlaying = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-    if (nextAudioRef.current) {
-      nextAudioRef.current.pause();
-    }
-    setIsAutoPlaying(false);
-    // 不重置 playingSentence 和 currentSentenceIndex，以便恢复播放时从暂停处继续
   };
 
   // 主题配置
@@ -382,7 +366,6 @@ const AudioBook: React.FC = () => {
               }}
               onClick={() => {
                 setSelectedChapter(chapter);
-                setCurrentPage(0);
               }}
             >
               <List.Item.Meta
@@ -401,7 +384,7 @@ const AudioBook: React.FC = () => {
 
     const contentStyle = {
       maxHeight: '70vh',
-      overflowY: readingMode === 'scroll' ? 'auto' : 'hidden',
+      overflowY: 'auto' as const,
       padding: '20px',
       background: themeStyles[theme].background,
       color: themeStyles[theme].text,
@@ -410,269 +393,33 @@ const AudioBook: React.FC = () => {
       transition: 'all 0.3s ease'
     };
 
-    const pageSize = 500; // 每页显示的字符数
     const content = selectedChapter.content;
-    const totalPages = Math.ceil(content.join('').length / pageSize);
-    const startIndex = currentPage * pageSize;
-    const endIndex = startIndex + pageSize;
-
-    let displayContent;
-    if (readingMode === 'book') {
-      let currentText = '';
-      let currentPageContent = [];
-
-      for (const sentence of content) {
-        if ((currentText + sentence).length <= pageSize) {
-          currentText += sentence;
-          currentPageContent.push(sentence);
-        } else {
-          break;
-        }
-      }
-
-      displayContent = currentPageContent;
-    } else {
-      displayContent = content;
-    }
-
-    // 预加载指定句子的音频
-    const preloadAudio = async (sentences: string[]) => {
-      const results: { [key: string]: string } = {};
-      // 生成缓存键，包含所有参数信息
-      const getCacheKey = (sentence: string) => {
-        return `${sentence}_${selectedVoice}_${selectedEmotion}_${selectedDialect}`;
-      };
-
-      // 过滤需要重新获取的句子
-      const toFetch = sentences.filter(sentence => !audioCache.current.has(getCacheKey(sentence)));
-
-      if (toFetch.length > 0) {
-        try {
-          const responses = await Promise.all(toFetch.map(sentence =>
-            fetch('https://api.siliconflow.cn/v1/audio/speech', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${API_KEY}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                model: "FunAudioLLM/CosyVoice2-0.5B",
-                voice: selectedVoice || "FunAudioLLM/CosyVoice2-0.5B:anna",
-                response_format: "mp3",
-                gain: 0,
-                stream: false,
-                input: `请以${emotionOptions.find(e => e.value === selectedEmotion)?.label + '的语气'}${selectedDialect ? `，用${selectedDialect}` : ''}表达${endString}${sentence}`
-              })
-            })
-          ));
-
-          const blobs = await Promise.all(responses.map(res => res.blob()));
-          toFetch.forEach((sentence, index) => {
-            const audioUrl = URL.createObjectURL(blobs[index]);
-            audioCache.current.set(getCacheKey(sentence), audioUrl);
-            results[sentence] = audioUrl;
-          });
-        } catch (error) {
-          console.error('Error preloading audio:', error);
-        }
-      }
-
-      // 返回所有句子的音频URL（包括缓存的）
-      return sentences.map(sentence => ({
-        sentence,
-        audioUrl: results[sentence] || audioCache.current.get(getCacheKey(sentence)) || null
-      }));
-    };
-
-    // 更新预加载队列
-    const updatePreloadQueue = async (currentIndex: number) => {
-      const maxPreloadCount = 3; // 预加载窗口大小
-      const endIndex = Math.min(currentIndex + maxPreloadCount, displayContent.length);
-      const preloadSentences = displayContent.slice(currentIndex, endIndex);
-
-      // 清理过期的缓存
-      const maxCacheSize = 10;
-      if (audioCache.current.size > maxCacheSize) {
-        const entries = Array.from(audioCache.current.entries());
-        entries.slice(0, entries.length - maxCacheSize).forEach(([key]) => {
-          const url = audioCache.current.get(key);
-          if (url) {
-            URL.revokeObjectURL(url);
-            audioCache.current.delete(key);
-          }
-        });
-      }
-
-      // 预加载音频
-      await preloadAudio(preloadSentences);
-    };
-
-    const handlePlayClick = async (sentence: string, index: number) => {
-      if (isLoading) return;
-      setIsLoading(true);
-      setPlayingSentence(sentence);
-      setCurrentSentenceIndex(index);
-      setIsAutoPlaying(true);
-
-      try {
-        // 预加载当前及后续句子
-        const audioResults = await preloadAudio([sentence]);
-        const audioUrl = audioResults[0]?.audioUrl;
-
-        if (!audioUrl) {
-          throw new Error('无法加载音频');
-        }
-
-        // 更新预加载队列
-        updatePreloadQueue(index + 1);
-
-        // 播放当前句子的语音
-        if (audioRef.current) {
-          audioRef.current.src = audioUrl;
-        } else {
-          audioRef.current = new Audio(audioUrl);
-        }
-
-        // 监听当前音频播放结束事件
-        audioRef.current.onended = async () => {
-          setPlayingSentence(null);
-          // 如果有下一句，自动播放下一句
-          const nextSentence = displayContent[index + 1];
-          if (nextSentence) {
-            setPlayingSentence(nextSentence);
-            handlePlayClick(nextSentence, index + 1);
-          } else {
-            setIsAutoPlaying(false);
-            message.success('本章播放完成');
-          }
-        };
-
-        audioRef.current.play();
-      } catch (error) {
-        console.error('Error playing audio:', error);
-        message.error('播放音频失败');
-        setPlayingSentence(null);
-        setIsAutoPlaying(false);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    const handleStopPlaying = () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      if (nextAudioRef.current) {
-        nextAudioRef.current.pause();
-      }
-      setIsAutoPlaying(false);
-      // 不重置 playingSentence 和 currentSentenceIndex，以便恢复播放时从暂停处继续
-    };
 
     return (
-      <div className="chapter-content">
-        <div className="mb-6 flex justify-between items-center">
-          <Title level={4} style={{ margin: 0, color: themeStyles[theme].text }}>{selectedChapter.title}</Title>
-          <Space>
-            {/* <Radio.Group value={theme} onChange={e => setTheme(e.target.value)}>
-              <Radio.Button value="light">浅色</Radio.Button>
-              <Radio.Button value="dark">深色</Radio.Button>
-              <Radio.Button value="sepia">护眼</Radio.Button>
-            </Radio.Group> */}
-            <Select
-              value={selectedEmotion}
-              onChange={value => setSelectedEmotion(value)}
-              style={{ width: 120 }}
-              options={emotionOptions}
-              placeholder="选择情绪"
-            />
-            <Select
-              value={selectedDialect}
-              onChange={value => setSelectedDialect(value)}
-              style={{ width: 120 }}
-              options={dialectOptions}
-              placeholder="选择方言"
-            />
-            <Select
-              value={selectedVoice}
-              onChange={value => setSelectedVoice(value)}
-              style={{ width: 120 }}
-              options={voiceOptions}
-              placeholder="选择音色"
-            />
-            {/* <Segmented
-              options={[{ value: 'scroll', label: '滚动' }, { value: 'book', label: '翻页' }]}
-              value={readingMode}
-              onChange={value => setReadingMode(value as ReadingModeType)}
-            /> */}
-          </Space>
-        </div>
-        <div className="mb-4 flex items-center justify-between">
-          <Button
-            type="text"
-            size="large"
-            icon={isAutoPlaying ? <PauseCircleOutlined style={{ fontSize: '24px' }} /> : <PlayCircleOutlined style={{ fontSize: '24px' }} />}
-            onClick={() => {
-              if (isAutoPlaying) {
-                handleStopPlaying();
-              } else if (displayContent.length > 0) {
-                setIsAutoPlaying(true);
-                const startIndex = playingSentence ? currentSentenceIndex : 0;
-                handlePlayClick(displayContent[startIndex], startIndex);
-                // 预加载后续句子
-                updatePreloadQueue(startIndex);
-              }
+      <div style={contentStyle}>
+        {content.map((sentence, index) => (
+          <span
+            key={index}
+            style={{
+              cursor: 'pointer',
+              backgroundColor: playingSentence === sentence ? 'rgba(0,0,0,0.1)' : 'transparent',
+              padding: '2px 4px',
+              margin: '0 2px',
+              borderRadius: '4px',
+              display: 'inline-block'
             }}
-          />
-          <span style={{ color: themeStyles[theme].text }}>
-            {playingSentence ? `正在播放: ${currentSentenceIndex + 1}/${displayContent.length}` : ''}
+            onClick={() => handlePlayClick(sentence, index, content)}
+          >
+            {sentence}
+            {playingSentence === sentence && isLoading && <Spin size="small" style={{ marginLeft: '5px' }} />}
+            {playingSentence === sentence && !isLoading && (
+              <PauseCircleOutlined style={{ marginLeft: '5px' }} />
+            )}
+            {playingSentence !== sentence && (
+              <PlayCircleOutlined style={{ marginLeft: '5px', opacity: 0.5 }} />
+            )}
           </span>
-        </div>
-        <div style={{ ...contentStyle, overflowY: readingMode === 'scroll' ? 'auto' as const : 'hidden' as const }}>
-          <div className="text-lg leading-relaxed">
-            {displayContent.map((sentence, index) => (
-              <span
-                key={index}
-                className={`sentence inline cursor-pointer transition-colors`}
-                style={{
-                  background: hoveredSentence === sentence ? `${themeStyles[theme].border}80` : 'transparent',
-                  padding: '2px 4px',
-                  margin: '0 2px',
-                  borderRadius: '4px',
-                  transition: 'all 0.2s ease-in-out',
-                  borderBottom: playingSentence === sentence ? `2px solid ${themeStyles[theme].text}` : 'none'
-                }}
-                onMouseEnter={() => setHoveredSentence(sentence)}
-                onMouseLeave={() => setHoveredSentence(null)}
-                onClick={() => handlePlayClick(sentence, index)}
-              >
-                <span style={{ marginRight: '4px' }}>
-                  {playingSentence === sentence ? <Spin size="small" /> : null}
-                </span>
-                {sentence}
-              </span>
-            ))}
-          </div>
-        </div>
-        {readingMode === 'book' && (
-          <div className="mt-4 flex justify-between">
-            <Button
-              onClick={() => setCurrentPage(prev => Math.max(0, prev - 1))}
-              disabled={currentPage === 0}
-            >
-              上一页
-            </Button>
-            <span style={{ color: themeStyles[theme].text }}>
-              {currentPage + 1} / {totalPages}
-            </span>
-            <Button
-              onClick={() => setCurrentPage(prev => Math.min(totalPages - 1, prev + 1))}
-              disabled={currentPage >= totalPages - 1}
-            >
-              下一页
-            </Button>
-          </div>
-        )}
+        ))}
       </div>
     );
   };
@@ -693,6 +440,29 @@ const AudioBook: React.FC = () => {
           返回列表
         </Button>
         <Title level={2} style={{ margin: 0, color: themeStyles[theme].text }}>电子书阅读</Title>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+          <Select
+            value={selectedEmotion}
+            onChange={setSelectedEmotion}
+            style={{ width: 120 }}
+            options={emotionOptions}
+            placeholder="选择情感"
+          />
+          <Select
+            value={selectedDialect}
+            onChange={setSelectedDialect}
+            style={{ width: 120 }}
+            options={dialectoptions}
+            placeholder="选择方言"
+          />
+          <Select
+            value={selectedVoice}
+            onChange={setSelectedVoice}
+            style={{ width: 120 }}
+            options={voiceOptions}
+            placeholder="选择音色"
+          />
+        </div>
       </div>
       {!currentBook && renderUpload()}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

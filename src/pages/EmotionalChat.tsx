@@ -62,7 +62,7 @@ const EmotionalChat: React.FC = () => {
     { value: '上海话', label: '上海话' },
     { value: '天津话', label: '天津话' }
   ];
-  const API_KEY = 'sk-bmpnjwoudgongymjxddhuwzgllfrszdbfsgygjkhhgfwizvz';
+  const API_KEY = import.meta.env.VITE_API_KEY;
 
   // 获取可用音色列表
   useEffect(() => {
