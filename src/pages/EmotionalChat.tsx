@@ -29,7 +29,10 @@ const EmotionalChat: React.FC = () => {
     const savedConversations = localStorage.getItem('conversations');
     return savedConversations ? JSON.parse(savedConversations) : [];
   });
-  const [selectedRole, setSelectedRole] = useState<string>('');
+  const [selectedRole, setSelectedRole] = useState<string>(() => {
+    const savedRole = localStorage.getItem('selectedRole');
+    return savedRole || '';
+  });
   const [currentConversationId, setCurrentConversationId] = useState<string>(() => {
     if (conversations.length > 0) {
       return conversations[0].id;
@@ -42,6 +45,7 @@ const EmotionalChat: React.FC = () => {
   const [selectedDialect, setSelectedDialect] = useState('');
   const [selectedVoice, setSelectedVoice] = useState('');
   const [voiceOptions, setVoiceOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
@@ -148,8 +152,8 @@ const EmotionalChat: React.FC = () => {
     }));
 
     const selectedRolePrompt = selectedRole ? systemRoles.find(role => role.id === selectedRole)?.prompt : '';
-    console.log(selectedRole, selectedRolePrompt)
-    const speechPrompt = `请以${emotionOptions.find(e => e.value === selectedEmotion)?.label + '的语气'}${selectedDialect ? `，用${selectedDialect}` : ''}表达<|endofprompt|>`
+    console.log('selectedRole', selectedRole, selectedRolePrompt)
+    // const speechPrompt = `请以${emotionOptions.find(e => e.value === selectedEmotion)?.label + '的语气'}${selectedDialect ? `，用${selectedDialect}` : ''}表达<|endprompt|>`
     try {
       // 生成对话响应
       const chatResponse = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
@@ -163,10 +167,10 @@ const EmotionalChat: React.FC = () => {
           // model: "deepseek-ai/DeepSeek-V3",
           model: "Qwen/Qwen2.5-72B-Instruct",
           messages: [
-            ...(selectedRolePrompt ? [{
+            {
               role: "system",
-              content: selectedRolePrompt
-            }] : []),
+              content: selectedRolePrompt || ''
+            },
             ...messages.slice(-5).map(msg => ({
               role: msg.type === 'user' ? 'user' : 'assistant',
               content: msg.content
@@ -216,7 +220,8 @@ const EmotionalChat: React.FC = () => {
           response_format: "mp3",
           gain: 0,
           stream: false,
-          input: `${speechPrompt}${displayReply}`
+          // input: `${speechPrompt}${displayReply}`
+          input: `${displayReply}`
         })
       });
 
@@ -246,8 +251,20 @@ const EmotionalChat: React.FC = () => {
 
       // 等待文本更新完成后，再更新音频并自动播放
       setTimeout(() => {
-        const audio = new Audio(audioUrl);
-        audio.play();
+        // 停止当前正在播放的音频
+        if (currentAudio) {
+          currentAudio.pause();
+          currentAudio.currentTime = 0;
+          currentAudio.src = audioUrl;
+          currentAudio.play();
+        } else {
+          const audioElement = document.querySelector(`audio[data-message-id="${botMessage.id}"]`) as HTMLAudioElement | null;
+          if (audioElement instanceof HTMLAudioElement) {
+            audioElement.src = audioUrl;
+            audioElement.play();
+            setCurrentAudio(audioElement);
+          }
+        }
         setConversations(prev => prev.map(conv => {
           if (conv.id === currentConversationId) {
             return {
@@ -273,7 +290,7 @@ const EmotionalChat: React.FC = () => {
   const handleRoleSelect = (roleId: string) => {
     setSelectedRole(roleId);
     const selectedRoleData = systemRoles.find(role => role.id === roleId);
-    if (selectedRoleData && currentConversationId) {
+    if (selectedRoleData) {
       const systemMessage: ChatMessage = {
         id: Date.now(),
         content: selectedRoleData.prompt,
@@ -281,15 +298,16 @@ const EmotionalChat: React.FC = () => {
         timestamp: new Date(),
         isSystem: true
       };
-      setConversations(prev => prev.map(conv => {
-        if (conv.id === currentConversationId) {
-          return {
-            ...conv,
-            messages: [systemMessage]
-          };
-        }
-        return conv;
-      }));
+
+      const newConversation: Conversation = {
+        id: Date.now().toString(),
+        title: selectedRoleData.name,
+        messages: [systemMessage],
+        createdAt: new Date()
+      };
+
+      setConversations(prev => [...prev, newConversation]);
+      setCurrentConversationId(newConversation.id);
     }
   };
 
@@ -318,6 +336,19 @@ const EmotionalChat: React.FC = () => {
         return {
           ...conv,
           messages: []
+        };
+      }
+      return conv;
+    }));
+  };
+
+  const handleDeleteMessage = (messageId: number) => {
+    if (!currentConversationId) return;
+    setConversations(prev => prev.map(conv => {
+      if (conv.id === currentConversationId) {
+        return {
+          ...conv,
+          messages: conv.messages.filter(msg => msg.id !== messageId)
         };
       }
       return conv;
@@ -479,7 +510,7 @@ const EmotionalChat: React.FC = () => {
                       type="text"
                       icon={<DeleteOutlined />}
                       size="small"
-                      // onClick={() => handleDeleteMessage(message.id)}
+                      onClick={() => handleDeleteMessage(message.id)}
                       className="delete-button"
                       style={{
                         position: 'absolute',

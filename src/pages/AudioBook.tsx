@@ -312,6 +312,8 @@ const AudioBook: React.FC = () => {
     showUploadList: false,
     beforeUpload: file => {
       const reader = new FileReader();
+      // 设置文件编码
+      const blob = new Blob([file], { type: 'text/plain;charset=UTF-8' });
       reader.onload = e => {
         try {
           const text = e.target?.result as string;
@@ -329,7 +331,7 @@ const AudioBook: React.FC = () => {
           message.error('文件解析失败');
         }
       };
-      reader.readAsText(file);
+      reader.readAsText(blob, 'UTF-8');
       return false;
     }
   };
