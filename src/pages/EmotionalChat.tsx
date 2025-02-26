@@ -256,13 +256,17 @@ const EmotionalChat: React.FC = () => {
           currentAudio.pause();
           currentAudio.currentTime = 0;
           currentAudio.src = audioUrl;
-          currentAudio.play();
+          currentAudio.onloadeddata = () => {
+            currentAudio.play();
+          };
         } else {
           const audioElement = document.querySelector(`audio[data-message-id="${botMessage.id}"]`) as HTMLAudioElement | null;
           if (audioElement instanceof HTMLAudioElement) {
             audioElement.src = audioUrl;
-            audioElement.play();
-            setCurrentAudio(audioElement);
+            audioElement.onloadeddata = () => {
+              audioElement.play();
+              setCurrentAudio(audioElement);
+            };
           }
         }
         setConversations(prev => prev.map(conv => {
@@ -291,23 +295,44 @@ const EmotionalChat: React.FC = () => {
     setSelectedRole(roleId);
     const selectedRoleData = systemRoles.find(role => role.id === roleId);
     if (selectedRoleData) {
-      const systemMessage: ChatMessage = {
-        id: Date.now(),
-        content: selectedRoleData.prompt,
-        type: 'bot',
-        timestamp: new Date(),
-        isSystem: true
-      };
+      if (!currentConversationId || conversations.length === 0) {
+        // 如果没有当前对话，创建一个新对话
+        const systemMessage: ChatMessage = {
+          id: Date.now(),
+          content: selectedRoleData.prompt,
+          type: 'bot',
+          timestamp: new Date(),
+          isSystem: true
+        };
 
-      const newConversation: Conversation = {
-        id: Date.now().toString(),
-        title: selectedRoleData.name,
-        messages: [systemMessage],
-        createdAt: new Date()
-      };
+        const newConversation: Conversation = {
+          id: Date.now().toString(),
+          title: selectedRoleData.name,
+          messages: [systemMessage],
+          createdAt: new Date()
+        };
+        setConversations(prev => [...prev, newConversation]);
+        setCurrentConversationId(newConversation.id);
+      } else {
+        // 如果有当前对话，更新系统消息
+        const systemMessage: ChatMessage = {
+          id: Date.now(),
+          content: selectedRoleData.prompt,
+          type: 'bot',
+          timestamp: new Date(),
+          isSystem: true
+        };
 
-      setConversations(prev => [...prev, newConversation]);
-      setCurrentConversationId(newConversation.id);
+        setConversations(prev => prev.map(conv => {
+          if (conv.id === currentConversationId) {
+            return {
+              ...conv,
+              messages: [systemMessage, ...conv.messages]
+            };
+          }
+          return conv;
+        }));
+      }
     }
   };
 
